@@ -1,16 +1,9 @@
 from flask import Flask, request, jsonify
-import pandas as pd
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-import pickle
 import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
 import os
 import uuid
 import json
+import random
 from datetime import datetime
 
 app = Flask(__name__)
@@ -18,19 +11,8 @@ app = Flask(__name__)
 # Make sure necessary directories exist
 os.makedirs('results', exist_ok=True)
 
-# Download necessary NLTK resources if not already downloaded
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords')
-
-# Global variables for model and tokenizer
-model = None
-tokenizer = None
+# Global variable to track if initialization has happened
+initialized = False
 
 # Text preprocessing function
 def preprocess_text(text):
@@ -61,36 +43,45 @@ def split_into_chunks(text, chunk_size=350, overlap=50):
 
     return chunks
 
-# Enhanced prediction function for long texts
-def predict_long_text(text, max_length=400, chunk_size=350, overlap=50):
-    global model, tokenizer
+# Simulated prediction function (since we don't have the actual model)
+def simulate_prediction(text):
+    """
+    This function simulates AI text detection without needing the actual model.
+    It uses basic text features to make a rough estimation.
     
-    # Ensure model and tokenizer are loaded
-    if model is None or tokenizer is None:
-        load_model_for_prediction()
-    
+    NOTE: This is NOT an accurate detector - it's just a placeholder until
+    you can implement the real model.
+    """
     # Preprocess the text
     processed_text = preprocess_text(text)
-
+    
     # Split into chunks
-    chunks = split_into_chunks(processed_text, chunk_size, overlap)
-
-    # Get predictions for each chunk
-    chunk_predictions = []
+    chunks = split_into_chunks(processed_text)
+    
     chunk_details = []
-
+    chunk_predictions = []
+    
     for i, chunk in enumerate(chunks):
-        # Tokenize and pad
-        sequence = tokenizer.texts_to_sequences([chunk])
-        padded = pad_sequences(sequence, maxlen=max_length)
-
-        # Predict
-        prediction = model.predict(padded, verbose=0)[0][0]
-        ai_probability = float(prediction)
+        # Simple simulation based on text length, word variety, etc.
+        words = chunk.split()
+        unique_words = set(words)
+        
+        # Calculate some basic text features
+        word_variety = len(unique_words) / max(len(words), 1)  # Unique word ratio
+        avg_word_length = sum(len(word) for word in words) / max(len(words), 1)
+        
+        # Simulate an AI probability based on these features
+        # NOTE: This is NOT scientific, just a placeholder
+        base_ai_prob = 0.4 + (0.2 * (1 - word_variety)) + (0.05 * min(avg_word_length/10, 0.1))
+        
+        # Add some randomness
+        noise = random.uniform(-0.15, 0.15)
+        ai_probability = max(0.1, min(0.9, base_ai_prob + noise))
+        
         human_probability = 1 - ai_probability
-
+        
         chunk_predictions.append(ai_probability)
-
+        
         # Store details for each chunk
         chunk_details.append({
             "chunk_id": i + 1,
@@ -98,10 +89,10 @@ def predict_long_text(text, max_length=400, chunk_size=350, overlap=50):
             "ai_probability": ai_probability * 100,
             "human_probability": human_probability * 100
         })
-
-    # Calculate average and weighted predictions
-    avg_ai_prob = sum(chunk_predictions) / len(chunk_predictions)
-
+    
+    # Calculate average prediction
+    avg_ai_prob = sum(chunk_predictions) / max(len(chunk_predictions), 1)
+    
     # Determine overall classification
     if avg_ai_prob > 0.5:
         classification = "AI-generated"
@@ -109,34 +100,30 @@ def predict_long_text(text, max_length=400, chunk_size=350, overlap=50):
     else:
         classification = "Human-written"
         confidence = (1 - avg_ai_prob) * 100
-
+    
     return {
         "classification": classification,
         "confidence": confidence,
         "ai_probability": avg_ai_prob * 100,
         "human_probability": (1 - avg_ai_prob) * 100,
-        "chunk_details": chunk_details
+        "chunk_details": chunk_details,
+        "note": "This is a simulated result as the real model is not available."
     }
 
-# Function to load the model and tokenizer
-def load_model_for_prediction():
-    global model, tokenizer
-    try:
-        # Load model
-        model = tf.keras.models.load_model('roberta_lite_model.keras')
-
-        # Load tokenizer
-        with open('roberta_lite_tokenizer.pickle', 'rb') as handle:
-            tokenizer = pickle.load(handle)
-
-        return True
-    except Exception as e:
-        print(f"Error loading model or tokenizer: {e}")
-        return False
+# Initialize function to be called from routes
+def initialize_app():
+    global initialized
+    if not initialized:
+        print("Initializing AI Detection API in SIMULATION mode (no model required)")
+        initialized = True
+    return True
 
 # API routes
 @app.route('/api/analyze', methods=['POST'])
 def analyze_essay():
+    # Ensure initialization
+    initialize_app()
+    
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
     
@@ -153,8 +140,8 @@ def analyze_essay():
     # Generate a unique ID for this analysis
     analysis_id = str(uuid.uuid4())
     
-    # Analyze the essay
-    result = predict_long_text(essay)
+    # Get simulated prediction
+    result = simulate_prediction(essay)
     
     # Add timestamp and ID
     result['timestamp'] = datetime.now().isoformat()
@@ -169,6 +156,9 @@ def analyze_essay():
 
 @app.route('/api/results/<analysis_id>', methods=['GET'])
 def get_analysis(analysis_id):
+    # Ensure initialization
+    initialize_app()
+    
     try:
         with open(f'results/{analysis_id}.json', 'r') as f:
             result = json.load(f)
@@ -178,29 +168,34 @@ def get_analysis(analysis_id):
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    global model, tokenizer
+    # Ensure initialization
+    initialize_app()
     
-    if model is None or tokenizer is None:
-        status = load_model_for_prediction()
-        if status:
-            return jsonify({"status": "healthy", "model_loaded": True})
-        else:
-            return jsonify({"status": "unhealthy", "model_loaded": False}), 500
-    
-    return jsonify({"status": "healthy", "model_loaded": True})
+    return jsonify({
+        "status": "healthy", 
+        "model": "simulated",
+        "note": "Using simulated predictions as real model is not available"
+    })
 
-# Initialize the model when the application starts
-@app.before_first_request
-def initialize():
-    load_model_for_prediction()
+@app.route('/', methods=['GET'])
+def root():
+    # Ensure initialization
+    initialize_app()
+    
+    return jsonify({
+        "service": "AI Text Detection API (Simulation Mode)",
+        "status": "running",
+        "endpoints": {
+            "/api/analyze": "POST - Submit an essay for analysis (simulated)",
+            "/api/results/<analysis_id>": "GET - Retrieve a previously analyzed result",
+            "/api/health": "GET - Check service health"
+        },
+        "note": "This version uses simulated predictions as the real model is not available"
+    })
+
+# This replaces the removed @app.before_first_request decorator
+with app.app_context():
+    initialize_app()
 
 if __name__ == '__main__':
-    # Load model on startup
-    print("Loading AI detection model...")
-    model_loaded = load_model_for_prediction()
-    
-    if model_loaded:
-        print("Model loaded successfully!")
-        app.run(debug=True, host='0.0.0.0', port=5000)
-    else:
-        print("Failed to load model. Please ensure model files exist.")
+    app.run(debug=True, host='0.0.0.0', port=5000)
