@@ -53,10 +53,10 @@ def load_model_and_tokenizer():
     try:
         global model, tokenizer
         # Load model
-        model = tf.keras.models.load_model('ai_text_detection_model.keras')
+        model = tf.keras.models.load_model('roberta_lite_model.keras')
 
         # Load tokenizer
-        with open('tokenizer.pickle', 'rb') as handle:
+        with open('roberta_lite_tokenizer.pickle', 'rb') as handle:
             tokenizer = pickle.load(handle)
 
         print("Model and tokenizer loaded successfully!")
